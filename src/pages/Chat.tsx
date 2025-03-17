@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import ChatContainer from "@/components/ChatContainer";
+import VideoDisplay from "@/components/VideoDisplay";
 import Button from "@/components/Button";
 import Loading from "@/components/Loading";
 import useChat from "@/hooks/useChat";
@@ -15,7 +16,10 @@ const Chat = () => {
     messages, 
     sendMessage, 
     connect, 
-    disconnect 
+    disconnect,
+    mediaState,
+    mediaEnabled,
+    toggleMedia
   } = useChat();
 
   useEffect(() => {
@@ -33,28 +37,41 @@ const Chat = () => {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-3xl mx-auto"
+          className="w-full max-w-5xl mx-auto"
         >
           <div className="mb-6">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Anonymous Chat</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Video Chat</h1>
             <p className="text-muted-foreground">
               You are {isConnected ? "connected" : "not connected"} to a random stranger.
             </p>
           </div>
           
           {isConnecting ? (
-            <div className="h-[400px] flex items-center justify-center">
+            <div className="h-[500px] flex items-center justify-center">
               <Loading />
             </div>
           ) : (
-            <ChatContainer
-              messages={messages}
-              onSendMessage={sendMessage}
-              onDisconnect={disconnect}
-              isConnected={isConnected}
-              isTyping={isTyping}
-              className="h-[400px] md:h-[500px]"
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Video display */}
+              <VideoDisplay 
+                localStream={mediaState.localStream}
+                remoteStream={mediaState.remoteStream}
+                isConnected={isConnected}
+                mediaEnabled={mediaEnabled}
+                onToggleMedia={toggleMedia}
+                className="aspect-video h-[300px] md:h-[400px]"
+              />
+              
+              {/* Chat container */}
+              <ChatContainer
+                messages={messages}
+                onSendMessage={sendMessage}
+                onDisconnect={disconnect}
+                isConnected={isConnected}
+                isTyping={isTyping}
+                className="h-[300px] md:h-[400px]"
+              />
+            </div>
           )}
           
           <div className="mt-6 text-center">
