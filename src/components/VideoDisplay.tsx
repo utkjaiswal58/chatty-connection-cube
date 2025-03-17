@@ -4,11 +4,13 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { Mic, MicOff, Video, VideoOff } from "lucide-react";
 import Button from "./Button";
+import Loading from "./Loading";
 
 interface VideoDisplayProps {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   isConnected: boolean;
+  isSearching?: boolean;
   mediaEnabled: {
     video: boolean;
     audio: boolean;
@@ -21,6 +23,7 @@ const VideoDisplay = ({
   localStream,
   remoteStream,
   isConnected,
+  isSearching = false,
   mediaEnabled,
   onToggleMedia,
   className
@@ -56,20 +59,27 @@ const VideoDisplay = ({
         )}
       />
       
-      {/* Overlay when not connected */}
+      {/* Overlay when not connected or searching */}
       {(!isConnected || !remoteStream) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
-          <p className="text-center">
-            {isConnected ? "Waiting for peer video..." : "Not connected"}
-          </p>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white">
+          {isSearching ? (
+            <div className="text-center">
+              <Loading size="sm" />
+              <p className="mt-4">Searching for someone to chat with...</p>
+            </div>
+          ) : (
+            <p className="text-center">
+              {isConnected ? "Waiting for peer video..." : "Not connected"}
+            </p>
+          )}
         </div>
       )}
       
-      {/* Local video (picture-in-picture) */}
+      {/* Local video (picture-in-picture) - increased size slightly for better visibility */}
       <motion.div
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="absolute bottom-4 right-4 w-1/4 max-w-[180px] aspect-video rounded-lg overflow-hidden shadow-xl border-2 border-white/20"
+        className="absolute bottom-4 right-4 w-1/3 max-w-[200px] aspect-video rounded-lg overflow-hidden shadow-xl border-2 border-white/20"
       >
         <video
           ref={localVideoRef}

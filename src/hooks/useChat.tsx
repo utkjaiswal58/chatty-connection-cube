@@ -7,22 +7,7 @@ import { toast } from "@/hooks/use-toast";
 const TYPING_DURATION = 2000; // milliseconds
 const CONNECT_DELAY = 2000; // milliseconds
 const DISCONNECT_DELAY = 1000; // milliseconds
-
-// Sample responses - only used when no peer is connected in this demo
-const SAMPLE_RESPONSES = [
-  "Hi there! How are you doing today?",
-  "Nice to meet you! What brings you here?",
-  "Hello! I'm just hanging out. What about you?",
-  "That's interesting! Tell me more about it.",
-  "I've never thought about it that way. You make a good point.",
-  "I understand what you mean. It happens to everyone.",
-  "What do you like to do in your free time?",
-  "I'm just looking to chat with new people. How about you?",
-  "Do you have any recommendations for good books or movies?",
-  "I'm from the internet, where are you from?",
-  "That sounds fun! I wish I could join you.",
-  "It's been nice talking with you!",
-];
+const SEARCHING_DELAY = 3000; // milliseconds for simulating search for another user
 
 interface MediaStreamState {
   localStream: MediaStream | null;
@@ -32,6 +17,7 @@ interface MediaStreamState {
 const useChat = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<{
     content: string;
@@ -49,13 +35,8 @@ const useChat = () => {
   
   // In a real implementation, these would be actual WebRTC connections
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const searchTimeoutRef = useRef<number | null>(null);
   const responseTimeoutRef = useRef<number | null>(null);
-
-  // Function to get a random response (only used in demo mode)
-  const getRandomResponse = () => {
-    const randomIndex = Math.floor(Math.random() * SAMPLE_RESPONSES.length);
-    return SAMPLE_RESPONSES[randomIndex];
-  };
 
   // Function to start local media stream
   const startLocalStream = useCallback(async () => {
@@ -89,31 +70,17 @@ const useChat = () => {
     
     setMessages((prev) => [...prev, newMessage]);
 
-    // In a real implementation, this would send the message via WebRTC data channel
-    // For now, we'll simulate the stranger typing
-    setIsTyping(true);
-    
-    // Clear any existing timeout
-    if (responseTimeoutRef.current) {
-      window.clearTimeout(responseTimeoutRef.current);
+    // Only simulate typing if connected to someone
+    if (isConnected) {
+      setIsTyping(true);
+      
+      // In a real implementation, this would send the message via WebRTC data channel
+      // For demo, we'll simulate the other user typing
+      setTimeout(() => {
+        setIsTyping(false);
+      }, TYPING_DURATION);
     }
-    
-    // Simulate a response (in a real app, this would come from the peer)
-    const responseTime = Math.random() * 3000 + 1000;
-    responseTimeoutRef.current = window.setTimeout(() => {
-      setIsTyping(false);
-      
-      // Add stranger's response
-      const response = {
-        content: getRandomResponse(),
-        isUser: false,
-        timestamp: new Date(),
-      };
-      
-      setMessages((prev) => [...prev, response]);
-      responseTimeoutRef.current = null;
-    }, responseTime);
-  }, []);
+  }, [isConnected]);
 
   // Toggle video or audio
   const toggleMedia = useCallback((type: 'video' | 'audio') => {
@@ -135,6 +102,87 @@ const useChat = () => {
     });
   }, [mediaState.localStream]);
 
+  // Simulate searching for another user
+  const simulateUserSearch = useCallback(() => {
+    setIsSearching(true);
+    
+    // Clear existing timeout if any
+    if (searchTimeoutRef.current) {
+      window.clearTimeout(searchTimeoutRef.current);
+    }
+    
+    // Simulate looking for another user with a random delay
+    // In a real app, this would be a WebSocket or WebRTC signaling
+    const searchTime = Math.random() * 5000 + SEARCHING_DELAY;
+    searchTimeoutRef.current = window.setTimeout(() => {
+      setIsSearching(false);
+      
+      // Simulate finding another user (50% chance)
+      const foundUser = Math.random() > 0.5;
+      
+      if (foundUser) {
+        // Create a fake remote stream for demonstration
+        const audioContext = new AudioContext();
+        const oscillator = audioContext.createOscillator();
+        oscillator.frequency.setValueAtTime(0, audioContext.currentTime); // Silent
+        const destination = audioContext.createMediaStreamDestination();
+        oscillator.connect(destination);
+        oscillator.start();
+        
+        // Create a fake video stream (black screen with random pixels)
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        
+        // Add some visual indication this is a "real user"
+        if (ctx) {
+          setInterval(() => {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw random colored pixels to simulate video noise
+            for (let i = 0; i < 100; i++) {
+              ctx.fillStyle = `rgba(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255}, 0.5)`;
+              ctx.fillRect(
+                Math.random() * canvas.width,
+                Math.random() * canvas.height,
+                5,
+                5
+              );
+            }
+          }, 100);
+        }
+        
+        const fakeVideoStream = canvas.captureStream();
+        
+        // Combine audio and video
+        const fakeTracks = [
+          ...fakeVideoStream.getVideoTracks(),
+          ...destination.stream.getAudioTracks()
+        ];
+        const fakeStream = new MediaStream(fakeTracks);
+        
+        setMediaState(prev => ({ ...prev, remoteStream: fakeStream }));
+        setIsConnected(true);
+        
+        toast({
+          title: "User Found!",
+          description: "You are now connected with another user.",
+        });
+      } else {
+        // Continue searching if no user found
+        toast({
+          title: "Still searching...",
+          description: "No users found yet. Continuing to search.",
+        });
+        simulateUserSearch();
+      }
+      
+      searchTimeoutRef.current = null;
+    }, searchTime);
+  }, []);
+
   // Function to connect to a new chat
   const connect = useCallback(async () => {
     setIsConnecting(true);
@@ -149,44 +197,15 @@ const useChat = () => {
         return;
       }
       
-      // In a real implementation, this would establish a WebRTC connection
-      // For now, we'll simulate the connection delay
+      toast({
+        title: "Searching for users",
+        description: "Looking for someone to chat with...",
+      });
+      
+      // After initial connection setup, start searching for users
       setTimeout(() => {
         setIsConnecting(false);
-        setIsConnected(true);
-        
-        // Add a simulated remote stream for demo purposes
-        const audioContext = new AudioContext();
-        const oscillator = audioContext.createOscillator();
-        oscillator.frequency.setValueAtTime(0, audioContext.currentTime); // Silent
-        const destination = audioContext.createMediaStreamDestination();
-        oscillator.connect(destination);
-        oscillator.start();
-        
-        // Create a fake video stream (black screen)
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        const fakeVideoStream = canvas.captureStream();
-        
-        // Combine audio and video
-        const fakeTracks = [
-          ...fakeVideoStream.getVideoTracks(),
-          ...destination.stream.getAudioTracks()
-        ];
-        const fakeStream = new MediaStream(fakeTracks);
-        
-        setMediaState(prev => ({ ...prev, remoteStream: fakeStream }));
-        
-        toast({
-          title: "Connected",
-          description: "You are now chatting with a stranger.",
-        });
+        simulateUserSearch();
       }, CONNECT_DELAY);
     } catch (error) {
       setIsConnecting(false);
@@ -197,11 +216,11 @@ const useChat = () => {
         variant: "destructive",
       });
     }
-  }, [startLocalStream]);
+  }, [startLocalStream, simulateUserSearch]);
 
   // Function to disconnect from the current chat
   const disconnect = useCallback(() => {
-    if (isConnected) {
+    if (isConnected || isSearching) {
       // Stop all media tracks
       if (mediaState.localStream) {
         mediaState.localStream.getTracks().forEach(track => track.stop());
@@ -213,13 +232,19 @@ const useChat = () => {
         peerConnectionRef.current = null;
       }
       
-      // Clear any pending response timeout
+      // Clear any pending timeouts
       if (responseTimeoutRef.current) {
         window.clearTimeout(responseTimeoutRef.current);
         responseTimeoutRef.current = null;
       }
       
+      if (searchTimeoutRef.current) {
+        window.clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+      
       setIsConnected(false);
+      setIsSearching(false);
       setMediaState({ localStream: null, remoteStream: null });
       
       setTimeout(() => {
@@ -229,10 +254,10 @@ const useChat = () => {
         });
       }, DISCONNECT_DELAY);
     } else {
-      // If not connected, try to connect
+      // If not connected or searching, try to connect
       connect();
     }
-  }, [isConnected, connect, mediaState]);
+  }, [isConnected, isSearching, connect, mediaState]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -247,6 +272,10 @@ const useChat = () => {
         window.clearTimeout(responseTimeoutRef.current);
       }
       
+      if (searchTimeoutRef.current) {
+        window.clearTimeout(searchTimeoutRef.current);
+      }
+      
       // Close any peer connections
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
@@ -257,6 +286,7 @@ const useChat = () => {
   return {
     isConnecting,
     isConnected,
+    isSearching,
     isTyping,
     messages,
     sendMessage,
