@@ -14,6 +14,8 @@ const Chat = () => {
     isConnected,
     isSearching, 
     isTyping, 
+    userId,
+    peerId,
     messages, 
     sendMessage, 
     connect, 
@@ -31,7 +33,7 @@ const Chat = () => {
   }, [isConnected, isConnecting, isSearching, connect]);
 
   const getStatusMessage = () => {
-    if (isConnected) return "You are connected to another user.";
+    if (isConnected) return `You (${userId}) are connected to ${peerId || "another user"}.`;
     if (isSearching) return "Searching for users...";
     if (isConnecting) return "Initializing connection...";
     return "You are not connected. Click below to start.";
@@ -66,16 +68,18 @@ const Chat = () => {
               <Loading />
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Video display - increased gap and adjusted height for better laptop view */}
               <VideoDisplay 
                 localStream={mediaState.localStream}
                 remoteStream={mediaState.remoteStream}
                 isConnected={isConnected}
                 isSearching={isSearching}
+                userId={userId}
+                peerId={peerId}
                 mediaEnabled={mediaEnabled}
                 onToggleMedia={toggleMedia}
-                className="aspect-video h-[300px] md:h-auto lg:h-[450px]"
+                className="aspect-video h-[300px] md:h-[400px] lg:h-auto"
               />
               
               {/* Chat container - adjusted height for better laptop view */}
@@ -85,7 +89,9 @@ const Chat = () => {
                 onDisconnect={disconnect}
                 isConnected={isConnected}
                 isTyping={isTyping}
-                className="h-[300px] md:h-auto lg:h-[450px]"
+                userId={userId}
+                peerId={peerId}
+                className="h-[300px] md:h-[400px] lg:h-auto"
               />
             </div>
           )}

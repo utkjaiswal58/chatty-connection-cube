@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { Mic, MicOff, User, Video, VideoOff } from "lucide-react";
 import Button from "./Button";
 import Loading from "./Loading";
 
@@ -11,6 +11,8 @@ interface VideoDisplayProps {
   remoteStream: MediaStream | null;
   isConnected: boolean;
   isSearching?: boolean;
+  userId: string;
+  peerId: string | null;
   mediaEnabled: {
     video: boolean;
     audio: boolean;
@@ -24,6 +26,8 @@ const VideoDisplay = ({
   remoteStream,
   isConnected,
   isSearching = false,
+  userId,
+  peerId,
   mediaEnabled,
   onToggleMedia,
   className
@@ -46,7 +50,7 @@ const VideoDisplay = ({
   }, [remoteStream]);
 
   return (
-    <div className={cn("relative rounded-lg overflow-hidden bg-black", className)}>
+    <div className={cn("relative rounded-lg overflow-hidden bg-black flex flex-col", className)}>
       {/* Remote video (full size) */}
       <video
         ref={remoteVideoRef}
@@ -58,6 +62,14 @@ const VideoDisplay = ({
           isConnected && remoteStream ? "opacity-100" : "opacity-0"
         )}
       />
+      
+      {/* User ID badge for remote user */}
+      {isConnected && peerId && (
+        <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-full text-white flex items-center gap-2 text-sm">
+          <User size={14} />
+          <span className="font-medium">{peerId}</span>
+        </div>
+      )}
       
       {/* Overlay when not connected or searching */}
       {(!isConnected || !remoteStream) && (
@@ -79,7 +91,7 @@ const VideoDisplay = ({
       <motion.div
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="absolute bottom-4 right-4 w-1/3 max-w-[200px] aspect-video rounded-lg overflow-hidden shadow-xl border-2 border-white/20"
+        className="absolute bottom-16 right-4 w-1/3 max-w-[180px] aspect-video rounded-lg overflow-hidden shadow-xl border-2 border-white/20"
       >
         <video
           ref={localVideoRef}
@@ -88,6 +100,12 @@ const VideoDisplay = ({
           muted
           className="w-full h-full object-cover"
         />
+        
+        {/* User ID badge for local user */}
+        <div className="absolute top-2 left-2 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-full text-white flex items-center gap-1.5 text-xs">
+          <User size={10} />
+          <span className="font-medium">{userId}</span>
+        </div>
         
         {/* Overlay when video is disabled */}
         {!mediaEnabled.video && (

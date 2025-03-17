@@ -1,15 +1,17 @@
 
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { User } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 interface ChatMessageProps {
   content: string;
   isUser: boolean;
   timestamp: Date;
+  userName: string;
 }
 
-const ChatMessage = ({ content, isUser, timestamp }: ChatMessageProps) => {
+const ChatMessage = ({ content, isUser, timestamp, userName }: ChatMessageProps) => {
   const messageRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
@@ -37,6 +39,10 @@ const ChatMessage = ({ content, isUser, timestamp }: ChatMessageProps) => {
             : "bg-secondary text-secondary-foreground rounded-tl-none"
         )}
       >
+        <div className="flex items-center gap-1 mb-1 text-xs opacity-80">
+          <User size={10} />
+          <span>{userName}</span>
+        </div>
         <p className="text-sm md:text-base">{content}</p>
         <div className="flex justify-end mt-1">
           <time className="text-xs opacity-70">

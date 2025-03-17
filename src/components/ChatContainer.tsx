@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, User } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import Button from "./Button";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,8 @@ interface ChatContainerProps {
   onDisconnect: () => void;
   isConnected: boolean;
   isTyping?: boolean;
+  userId: string;
+  peerId: string | null;
   className?: string;
 }
 
@@ -22,6 +24,8 @@ const ChatContainer = ({
   onDisconnect,
   isConnected,
   isTyping = false,
+  userId,
+  peerId,
   className 
 }: ChatContainerProps) => {
   const [message, setMessage] = useState("");
@@ -50,20 +54,31 @@ const ChatContainer = ({
     }
   }, [isConnected]);
 
+  useEffect(() => {
+    // Auto-scroll to bottom when new messages arrive
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
+
   return (
     <div className={cn("flex flex-col h-full w-full overflow-hidden rounded-lg border glass", className)}>
       {/* Chat header */}
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center">
           <div className="relative mr-2">
-            <div className="size-3 rounded-full bg-primary"></div>
-            {isConnected && (
-              <div className="absolute -inset-1 rounded-full border border-primary animate-pulse-soft"></div>
+            <div className={cn("size-3 rounded-full", isConnected ? "bg-primary animate-pulse" : "bg-muted")}></div>
+          </div>
+          <div className="flex flex-col">
+            <span className="font-medium text-sm">
+              {isConnected ? "Connected" : "Disconnected"}
+            </span>
+            {isConnected && peerId && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <User size={10} /> {peerId}
+              </span>
             )}
           </div>
-          <span className="font-medium">
-            {isConnected ? "Connected" : "Disconnected"}
-          </span>
         </div>
         <Button 
           variant="ghost" 
@@ -91,6 +106,7 @@ const ChatContainer = ({
               content={msg.content}
               isUser={msg.isUser}
               timestamp={msg.timestamp}
+              userName={msg.isUser ? userId : (peerId || "Unknown")}
             />
           ))
         )}
@@ -118,7 +134,7 @@ const ChatContainer = ({
             type="text"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Type a message..."
+            placeholder={isConnected ? "Type a message..." : "Connect to start chatting"}
             className="flex-1 px-4 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             disabled={!isConnected}
           />
