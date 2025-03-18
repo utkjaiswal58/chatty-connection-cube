@@ -21,6 +21,7 @@ const useChat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [userId] = useState(() => `user_${Math.random().toString(36).substring(2, 9)}`);
   const [peerId, setPeerId] = useState<string | null>(null);
+  const [targetUserId, setTargetUserId] = useState<string | null>(null);
   const [messages, setMessages] = useState<{
     content: string;
     isUser: boolean;
@@ -109,102 +110,118 @@ const useChat = () => {
     setIsSearching(true);
     
     // Clear existing timeout if any
-    if (searchTimeoutRef.current) {
+    if (searchTimeoutRef.current !== null) {
       window.clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    
+    // If target user ID is provided, simulate direct connection
+    if (targetUserId) {
+      // For demo purposes, we'll just simulate connecting to this user ID
+      const searchTime = 1500;
+      
+      const timeoutId = window.setTimeout(() => {
+        setIsSearching(false);
+        connectWithUser(targetUserId);
+      }, searchTime);
+      
+      searchTimeoutRef.current = timeoutId;
+      return;
     }
     
     // Simulate looking for another user with a random delay
     // In a real app, this would be a WebSocket or WebRTC signaling
     const searchTime = Math.random() * 5000 + SEARCHING_DELAY;
-    searchTimeoutRef.current = window.setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       setIsSearching(false);
       
-      // Simulate finding another user (50% chance)
-      const foundUser = Math.random() > 0.5;
-      
-      if (foundUser) {
-        // Generate a peer ID for the connected user
-        const generatedPeerId = `user_${Math.random().toString(36).substring(2, 9)}`;
-        setPeerId(generatedPeerId);
-        
-        // Create a remote video stream
-        try {
-          // Create a fake remote stream for demonstration
-          const audioContext = new AudioContext();
-          const oscillator = audioContext.createOscillator();
-          oscillator.frequency.setValueAtTime(0, audioContext.currentTime); // Silent
-          const destination = audioContext.createMediaStreamDestination();
-          oscillator.connect(destination);
-          oscillator.start();
-          
-          // Create a fake video stream (black screen with random pixels)
-          const canvas = document.createElement('canvas');
-          canvas.width = 640;
-          canvas.height = 480;
-          const ctx = canvas.getContext('2d');
-          
-          // Add some visual indication this is a "real user"
-          if (ctx) {
-            setInterval(() => {
-              ctx.fillStyle = '#000000';
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-              
-              // Draw random colored pixels to simulate video noise
-              for (let i = 0; i < 100; i++) {
-                ctx.fillStyle = `rgba(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255}, 0.5)`;
-                ctx.fillRect(
-                  Math.random() * canvas.width,
-                  Math.random() * canvas.height,
-                  5,
-                  5
-                );
-              }
-              
-              // Add "USER" text to the canvas to make it more clear it's a user
-              ctx.fillStyle = '#ffffff';
-              ctx.font = '30px Arial';
-              ctx.fillText(`Remote: ${generatedPeerId}`, 20, 50);
-            }, 100);
-          }
-          
-          const fakeVideoStream = canvas.captureStream();
-          
-          // Combine audio and video
-          const fakeTracks = [
-            ...fakeVideoStream.getVideoTracks(),
-            ...destination.stream.getAudioTracks()
-          ];
-          const fakeStream = new MediaStream(fakeTracks);
-          
-          setMediaState(prev => ({ ...prev, remoteStream: fakeStream }));
-          setIsConnected(true);
-          
-          toast({
-            title: "User Found!",
-            description: `You are now connected with ${generatedPeerId}.`,
-          });
-        } catch (error) {
-          console.error("Error creating fake stream:", error);
-          simulateUserSearch(); // Try again if failed
-        }
-      } else {
-        // Continue searching if no user found
-        toast({
-          title: "Still searching...",
-          description: "No users found yet. Continuing to search.",
-        });
-        simulateUserSearch();
-      }
+      // For demo purposes, always find a user when searching
+      const generatedPeerId = `user_${Math.random().toString(36).substring(2, 9)}`;
+      connectWithUser(generatedPeerId);
       
       searchTimeoutRef.current = null;
     }, searchTime);
+    
+    searchTimeoutRef.current = timeoutId;
+  }, [targetUserId]);
+
+  // Function to connect with a specific user
+  const connectWithUser = useCallback((userIdToConnect: string) => {
+    // Generate a peer ID for the connected user
+    setPeerId(userIdToConnect);
+    
+    // Create a remote video stream
+    try {
+      // Create a fake remote stream for demonstration
+      const audioContext = new AudioContext();
+      const oscillator = audioContext.createOscillator();
+      oscillator.frequency.setValueAtTime(0, audioContext.currentTime); // Silent
+      const destination = audioContext.createMediaStreamDestination();
+      oscillator.connect(destination);
+      oscillator.start();
+      
+      // Create a fake video stream (black screen with random pixels)
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      
+      // Add some visual indication this is a "real user"
+      if (ctx) {
+        setInterval(() => {
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw random colored pixels to simulate video noise
+          for (let i = 0; i < 100; i++) {
+            ctx.fillStyle = `rgba(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255}, 0.5)`;
+            ctx.fillRect(
+              Math.random() * canvas.width,
+              Math.random() * canvas.height,
+              5,
+              5
+            );
+          }
+          
+          // Add "USER" text to the canvas to make it more clear it's a user
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '30px Arial';
+          ctx.fillText(`Remote: ${userIdToConnect}`, 20, 50);
+        }, 100);
+      }
+      
+      const fakeVideoStream = canvas.captureStream();
+      
+      // Combine audio and video
+      const fakeTracks = [
+        ...fakeVideoStream.getVideoTracks(),
+        ...destination.stream.getAudioTracks()
+      ];
+      const fakeStream = new MediaStream(fakeTracks);
+      
+      setMediaState(prev => ({ ...prev, remoteStream: fakeStream }));
+      setIsConnected(true);
+      
+      toast({
+        title: "User Found!",
+        description: `You are now connected with ${userIdToConnect}.`,
+      });
+    } catch (error) {
+      console.error("Error creating fake stream:", error);
+      toast({
+        title: "Connection failed",
+        description: "Failed to establish connection. Please try again.",
+        variant: "destructive",
+      });
+    }
   }, []);
 
   // Function to connect to a new chat
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (specificUserId?: string) => {
     setIsConnecting(true);
     setMessages([]);
     setPeerId(null);
+    setTargetUserId(specificUserId || null);
     
     try {
       // Start local media stream
@@ -216,8 +233,10 @@ const useChat = () => {
       }
       
       toast({
-        title: "Searching for users",
-        description: "Looking for someone to chat with...",
+        title: specificUserId ? "Connecting to specific user" : "Searching for users",
+        description: specificUserId 
+          ? `Attempting to connect with ${specificUserId}...` 
+          : "Looking for someone to chat with...",
       });
       
       // After initial connection setup, start searching for users
@@ -251,18 +270,19 @@ const useChat = () => {
       }
       
       // Clear any pending timeouts
-      if (responseTimeoutRef.current) {
+      if (responseTimeoutRef.current !== null) {
         window.clearTimeout(responseTimeoutRef.current);
         responseTimeoutRef.current = null;
       }
       
-      if (searchTimeoutRef.current) {
+      if (searchTimeoutRef.current !== null) {
         window.clearTimeout(searchTimeoutRef.current);
         searchTimeoutRef.current = null;
       }
       
       setIsConnected(false);
       setIsSearching(false);
+      setTargetUserId(null);
       setPeerId(null);
       setMediaState({ localStream: null, remoteStream: null });
       
@@ -272,11 +292,8 @@ const useChat = () => {
           description: "You have disconnected from the chat.",
         });
       }, DISCONNECT_DELAY);
-    } else {
-      // If not connected or searching, try to connect
-      connect();
     }
-  }, [isConnected, isSearching, connect, mediaState]);
+  }, [isConnected, isSearching, mediaState]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -287,11 +304,11 @@ const useChat = () => {
       }
       
       // Clear any pending timeouts
-      if (responseTimeoutRef.current) {
+      if (responseTimeoutRef.current !== null) {
         window.clearTimeout(responseTimeoutRef.current);
       }
       
-      if (searchTimeoutRef.current) {
+      if (searchTimeoutRef.current !== null) {
         window.clearTimeout(searchTimeoutRef.current);
       }
       

@@ -1,5 +1,5 @@
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import ChatContainer from "@/components/ChatContainer";
@@ -7,6 +7,8 @@ import VideoDisplay from "@/components/VideoDisplay";
 import Button from "@/components/Button";
 import Loading from "@/components/Loading";
 import useChat from "@/hooks/useChat";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/hooks/use-toast";
 
 const Chat = () => {
   const { 
@@ -25,12 +27,27 @@ const Chat = () => {
     toggleMedia
   } = useChat();
 
-  useEffect(() => {
-    // Auto-connect when the page loads
-    if (!isConnected && !isConnecting && !isSearching) {
-      connect();
+  const [specificUserId, setSpecificUserId] = useState("");
+  const [showDirectConnect, setShowDirectConnect] = useState(false);
+
+  const handleConnectToUser = () => {
+    if (!specificUserId.trim()) {
+      toast({
+        title: "Invalid User ID",
+        description: "Please enter a valid User ID to connect",
+        variant: "destructive"
+      });
+      return;
     }
-  }, [isConnected, isConnecting, isSearching, connect]);
+    
+    connect(specificUserId);
+    setShowDirectConnect(false);
+  };
+
+  const handleDisconnect = () => {
+    disconnect();
+    setSpecificUserId("");
+  };
 
   const getStatusMessage = () => {
     if (isConnected) return `You (${userId}) are connected to ${peerId || "another user"}.`;
@@ -61,6 +78,11 @@ const Chat = () => {
             <p className="text-muted-foreground">
               {getStatusMessage()}
             </p>
+            {!isConnected && !isSearching && !isConnecting && (
+              <p className="text-sm text-muted-foreground mt-2">
+                Your User ID: <span className="font-medium">{userId}</span> (share this with others to let them connect with you)
+              </p>
+            )}
           </div>
           
           {isConnecting ? (
@@ -86,7 +108,7 @@ const Chat = () => {
               <ChatContainer
                 messages={messages}
                 onSendMessage={sendMessage}
-                onDisconnect={disconnect}
+                onDisconnect={handleDisconnect}
                 isConnected={isConnected}
                 isTyping={isTyping}
                 userId={userId}
@@ -97,21 +119,62 @@ const Chat = () => {
           )}
           
           <div className="mt-6 text-center">
-            <p className="text-sm text-muted-foreground mb-4">
-              {isConnected 
-                ? "To end this conversation and find a new one, click the button below." 
-                : isSearching
-                  ? "Still looking for someone to chat with. You can cancel the search below."
-                  : "Click the button below to start looking for someone to chat with."}
-            </p>
-            <Button
-              onClick={disconnect}
-              variant={isConnected || isSearching ? "destructive" : "default"}
-              className="min-w-40"
-              isLoading={isConnecting}
-            >
-              {getButtonText()}
-            </Button>
+            {!isConnected && !isSearching && !isConnecting && (
+              <div className="mb-4">
+                {showDirectConnect ? (
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2 max-w-md mx-auto">
+                    <Input
+                      placeholder="Enter User ID to connect with"
+                      value={specificUserId}
+                      onChange={(e) => setSpecificUserId(e.target.value)}
+                      className="flex-1"
+                    />
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={handleConnectToUser}
+                        size="sm"
+                      >
+                        Connect
+                      </Button>
+                      <Button 
+                        onClick={() => setShowDirectConnect(false)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row justify-center gap-3 mb-2">
+                    <Button onClick={() => connect()}>Find Random User</Button>
+                    <Button 
+                      onClick={() => setShowDirectConnect(true)}
+                      variant="outline"
+                    >
+                      Connect to Specific User
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(isConnected || isSearching) && (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {isConnected 
+                    ? "To end this conversation and find a new one, click the button below." 
+                    : "Still looking for someone to chat with. You can cancel the search below."}
+                </p>
+                <Button
+                  onClick={handleDisconnect}
+                  variant="destructive"
+                  className="min-w-40"
+                >
+                  {isConnected ? "End Chat" : "Cancel Search"}
+                </Button>
+              </>
+            )}
           </div>
         </motion.div>
       </main>
