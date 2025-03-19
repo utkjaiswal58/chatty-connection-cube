@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "@/hooks/use-toast";
 import { 
@@ -6,7 +7,8 @@ import {
   createPeerConnection, 
   addTracksToConnection,
   getUserMedia,
-  setupReliableDataChannel
+  setupReliableDataChannel,
+  DataChannelWrapper
 } from "@/utils/webRTCUtils";
 
 // Constants
@@ -48,6 +50,8 @@ const useChat = () => {
   const typingTimeoutRef = useRef<number | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const dataChannelWrapperRef = useRef<DataChannelWrapper | null>(null);
+  const connectionTimeoutRef = useRef<number | null>(null);
 
   // Initialize signaling
   useEffect(() => {
@@ -176,6 +180,23 @@ const useChat = () => {
       }
     );
     
+    // Set up connection timeout to restart if no connection after some time
+    if (connectionTimeoutRef.current) {
+      window.clearTimeout(connectionTimeoutRef.current);
+    }
+    
+    connectionTimeoutRef.current = window.setTimeout(() => {
+      if (peerConnectionRef.current && peerConnectionRef.current.iceConnectionState !== 'connected' && peerConnectionRef.current.iceConnectionState !== 'completed') {
+        console.log('[PeerConnection] Connection timeout, restarting ICE');
+        try {
+          peerConnectionRef.current.restartIce();
+        } catch (e) {
+          console.error('[PeerConnection] Error restarting ICE:', e);
+        }
+      }
+      connectionTimeoutRef.current = null;
+    }, 15000);
+    
     // Create data channel for text messaging
     if (initiator) {
       console.log("Creating data channel as initiator");
@@ -183,7 +204,8 @@ const useChat = () => {
         ordered: true,
         maxRetransmits: 3
       });
-      dataChannelRef.current = setupReliableDataChannel(
+      
+      const dataChannelWrapper = setupReliableDataChannel(
         dataChannel,
         undefined,
         undefined,
@@ -206,11 +228,14 @@ const useChat = () => {
           }
         }
       );
+      
+      dataChannelRef.current = dataChannelWrapper.channel;
+      dataChannelWrapperRef.current = dataChannelWrapper;
     } else {
       console.log("Setting up ondatachannel as receiver");
       pc.ondatachannel = (event) => {
         console.log("Data channel received from peer");
-        dataChannelRef.current = setupReliableDataChannel(
+        const dataChannelWrapper = setupReliableDataChannel(
           event.channel,
           undefined,
           undefined,
@@ -233,6 +258,9 @@ const useChat = () => {
             }
           }
         );
+        
+        dataChannelRef.current = dataChannelWrapper.channel;
+        dataChannelWrapperRef.current = dataChannelWrapper;
       };
     }
     
@@ -258,10 +286,14 @@ const useChat = () => {
   // Send typing indicator
   const sendTypingIndicator = useCallback(() => {
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
-      dataChannelRef.current.send(JSON.stringify({
-        type: 'typing',
-        timestamp: Date.now()
-      }));
+      try {
+        dataChannelRef.current.send(JSON.stringify({
+          type: 'typing',
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.error('[DataChannel] Error sending typing indicator:', e);
+      }
     }
   }, []);
 
@@ -278,11 +310,22 @@ const useChat = () => {
 
     // Send message through data channel if connected
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
-      dataChannelRef.current.send(JSON.stringify({
-        type: 'chat',
-        content,
-        timestamp: Date.now()
-      }));
+      try {
+        dataChannelRef.current.send(JSON.stringify({
+          type: 'chat',
+          content,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.error('[DataChannel] Error sending chat message:', e);
+        
+        // Add error message to chat
+        setMessages(prev => [...prev, {
+          content: "Message delivery failed. Please try again.",
+          isUser: true,
+          timestamp: new Date(),
+        }]);
+      }
     }
   }, []);
 
@@ -399,7 +442,11 @@ const useChat = () => {
           
           // Create and send an offer
           console.log("Creating and sending SDP offer");
-          const offer = await pc.createOffer();
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+            iceRestart: true,
+          });
           await pc.setLocalDescription(offer);
           
           if (signalingRef.current) {
@@ -475,16 +522,19 @@ const useChat = () => {
         mediaState.localStream.getTracks().forEach(track => track.stop());
       }
       
+      // Clean up data channel wrapper
+      if (dataChannelWrapperRef.current) {
+        dataChannelWrapperRef.current.cleanup();
+        dataChannelWrapperRef.current = null;
+      }
+      
+      // Close data channel
+      dataChannelRef.current = null;
+      
       // Close peer connection
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
-      }
-      
-      // Close data channel
-      if (dataChannelRef.current) {
-        dataChannelRef.current.close();
-        dataChannelRef.current = null;
       }
       
       // Clear any pending timeouts
@@ -496,6 +546,11 @@ const useChat = () => {
       if (searchTimeoutRef.current !== null) {
         window.clearTimeout(searchTimeoutRef.current);
         searchTimeoutRef.current = null;
+      }
+      
+      if (connectionTimeoutRef.current !== null) {
+        window.clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
       }
       
       // Remove active user entry
@@ -533,14 +588,18 @@ const useChat = () => {
         window.clearTimeout(searchTimeoutRef.current);
       }
       
+      if (connectionTimeoutRef.current !== null) {
+        window.clearTimeout(connectionTimeoutRef.current);
+      }
+      
+      // Clean up data channel wrapper
+      if (dataChannelWrapperRef.current) {
+        dataChannelWrapperRef.current.cleanup();
+      }
+      
       // Close any peer connections
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
-      }
-      
-      // Close any data channels
-      if (dataChannelRef.current) {
-        dataChannelRef.current.close();
       }
       
       // Remove active user entry

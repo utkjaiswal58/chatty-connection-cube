@@ -1,14 +1,16 @@
 
-// WebRTC configuration
+// WebRTC configuration with expanded STUN/TURN servers for better connectivity
 export const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    // Add more STUN servers for increased reliability
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
+    // Add TURN servers for NAT traversal (need to replace with your own TURN server in production)
+    // { urls: 'turn:YOUR_TURN_SERVER', username: 'username', credential: 'credential' },
   ],
+  iceCandidatePoolSize: 10, // Increase candidate pool for better connectivity
 };
 
 // Improved BroadcastChannel for signaling
@@ -17,6 +19,7 @@ export class BroadcastSignaling {
   private userId: string;
   private listeners: Map<string, ((data: any) => void)[]> = new Map();
   private pendingMessages: Map<string, any[]> = new Map(); // Store messages that might arrive before listeners
+  private isActive = true;
 
   constructor(userId: string) {
     this.userId = userId;
@@ -29,15 +32,23 @@ export class BroadcastSignaling {
     this.sendPing();
     
     // Set interval to periodically ping to maintain presence
-    setInterval(() => this.sendPing(), 5000);
+    setInterval(() => {
+      if (this.isActive) {
+        this.sendPing();
+      }
+    }, 5000);
   }
 
   private sendPing() {
-    this.channel.postMessage({
-      type: 'ping',
-      from: this.userId,
-      timestamp: Date.now()
-    });
+    try {
+      this.channel.postMessage({
+        type: 'ping',
+        from: this.userId,
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error('[Signaling] Error sending ping:', e);
+    }
   }
 
   private handleMessage = (event: MessageEvent) => {
@@ -95,6 +106,11 @@ export class BroadcastSignaling {
   }
 
   public send(eventType: string, target: string, data: any) {
+    if (!this.isActive) {
+      console.warn(`[Signaling] Attempted to send message when signaling is inactive`);
+      return;
+    }
+    
     if (eventType !== 'ping') {
       console.log(`[Signaling] Sending ${eventType} to ${target}:`, data);
     }
@@ -107,19 +123,34 @@ export class BroadcastSignaling {
       timestamp: Date.now()
     };
     
-    this.channel.postMessage(message);
-    
-    // For critical messages, send again after a short delay to improve reliability
-    if (['offer_sdp', 'answer_sdp', 'ice_candidate'].includes(eventType)) {
-      setTimeout(() => {
-        console.log(`[Signaling] Resending ${eventType} for reliability`);
-        this.channel.postMessage(message);
-      }, 1000);
+    try {
+      this.channel.postMessage(message);
+      
+      // For critical messages, send again after a short delay to improve reliability
+      if (['offer_sdp', 'answer_sdp', 'ice_candidate'].includes(eventType)) {
+        setTimeout(() => {
+          if (this.isActive) {
+            console.log(`[Signaling] Resending ${eventType} for reliability`);
+            try {
+              this.channel.postMessage(message);
+            } catch (e) {
+              console.error(`[Signaling] Error resending ${eventType}:`, e);
+            }
+          }
+        }, 1000);
+      }
+    } catch (e) {
+      console.error(`[Signaling] Error sending ${eventType}:`, e);
     }
   }
 
   public cleanup() {
-    this.channel.close();
+    this.isActive = false;
+    try {
+      this.channel.close();
+    } catch (e) {
+      console.error('[Signaling] Error closing channel:', e);
+    }
     this.listeners.clear();
     this.pendingMessages.clear();
     console.log(`[Signaling] Cleaned up for user ${this.userId}`);
@@ -144,6 +175,16 @@ export const createPeerConnection = (
   
   peerConnection.oniceconnectionstatechange = () => {
     console.log(`[PeerConnection] ICE connection state: ${peerConnection.iceConnectionState}`);
+    
+    // Handle ICE connection failures
+    if (peerConnection.iceConnectionState === 'failed') {
+      console.warn('[PeerConnection] ICE connection failed, attempting to restart ICE');
+      try {
+        peerConnection.restartIce();
+      } catch (e) {
+        console.error('[PeerConnection] Error restarting ICE:', e);
+      }
+    }
   };
   
   peerConnection.onicegatheringstatechange = () => {
@@ -232,12 +273,17 @@ export const getUserMedia = async (constraints: MediaStreamConstraints): Promise
 };
 
 // Enhanced data channel setup
+export interface DataChannelWrapper {
+  channel: RTCDataChannel;
+  cleanup: () => void;
+}
+
 export const setupReliableDataChannel = (
   dataChannel: RTCDataChannel, 
   onOpen?: () => void, 
   onClose?: () => void, 
   onMessage?: (data: any) => void
-) => {
+): DataChannelWrapper => {
   console.log(`[DataChannel] Setting up channel: ${dataChannel.label}`);
   
   dataChannel.binaryType = 'arraybuffer';
