@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, RefObject } from "react";
 import { Send, User } from "lucide-react";
 import ChatMessage from "./ChatMessage";
 import Button from "./Button";
@@ -16,6 +16,7 @@ interface ChatContainerProps {
   userId: string;
   peerId: string | null;
   className?: string;
+  inputRef?: RefObject<HTMLInputElement>;
 }
 
 const ChatContainer = ({ 
@@ -26,12 +27,16 @@ const ChatContainer = ({
   isTyping = false,
   userId,
   peerId,
-  className 
+  className,
+  inputRef
 }: ChatContainerProps) => {
   const [message, setMessage] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const defaultInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  
+  // Use provided inputRef or fallback to internal ref
+  const actualInputRef = inputRef || defaultInputRef;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,10 +54,10 @@ const ChatContainer = ({
 
   useEffect(() => {
     // Auto-focus input when connected
-    if (isConnected && inputRef.current) {
-      inputRef.current.focus();
+    if (isConnected && actualInputRef.current) {
+      actualInputRef.current.focus();
     }
-  }, [isConnected]);
+  }, [isConnected, actualInputRef]);
 
   useEffect(() => {
     // Auto-scroll to bottom when new messages arrive
@@ -130,7 +135,7 @@ const ChatContainer = ({
       <div className="p-4 border-t">
         <form onSubmit={handleSubmit} className="flex space-x-2">
           <input
-            ref={inputRef}
+            ref={actualInputRef}
             type="text"
             value={message}
             onChange={(e) => setMessage(e.target.value)}

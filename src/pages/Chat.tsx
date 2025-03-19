@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import ChatContainer from "@/components/ChatContainer";
@@ -21,7 +21,8 @@ const Chat = () => {
     userId,
     peerId,
     messages, 
-    sendMessage, 
+    sendMessage,
+    sendTypingIndicator,
     connect, 
     disconnect,
     mediaState,
@@ -31,6 +32,39 @@ const Chat = () => {
 
   const [specificUserId, setSpecificUserId] = useState("");
   const [showDirectConnect, setShowDirectConnect] = useState(false);
+  const messageInput = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Effect to trigger typing indicator when user is typing
+  useEffect(() => {
+    const handleKeyUp = () => {
+      if (isConnected && messageInput.current?.value) {
+        sendTypingIndicator();
+        
+        // Clear existing timeout
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+        
+        // Set new timeout
+        typingTimeoutRef.current = setTimeout(() => {
+          typingTimeoutRef.current = null;
+        }, 2000);
+      }
+    };
+    
+    const input = messageInput.current;
+    if (input) {
+      input.addEventListener('keyup', handleKeyUp);
+      
+      return () => {
+        input.removeEventListener('keyup', handleKeyUp);
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+      };
+    }
+  }, [isConnected, sendTypingIndicator]);
 
   const handleConnectToUser = () => {
     if (!specificUserId.trim()) {
@@ -149,6 +183,7 @@ const Chat = () => {
                 userId={userId}
                 peerId={peerId}
                 className="h-[300px] md:h-[400px] lg:h-auto"
+                inputRef={messageInput}
               />
             </div>
           )}

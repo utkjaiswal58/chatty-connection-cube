@@ -8,24 +8,24 @@ export const iceServers = {
   ],
 };
 
-// Simple signaling server simulation using localStorage
-// In production, you would use a real signaling server
-export class LocalStorageSignaling {
+// Signaling server using BroadcastChannel API
+// This is a better in-browser solution than localStorage
+export class BroadcastSignaling {
+  private channel: BroadcastChannel;
   private userId: string;
   private listeners: Map<string, ((data: any) => void)[]> = new Map();
 
   constructor(userId: string) {
     this.userId = userId;
-    window.addEventListener('storage', this.handleStorageEvent);
+    this.channel = new BroadcastChannel('webrtc-signaling');
+    this.channel.onmessage = this.handleMessage;
   }
 
-  private handleStorageEvent = (event: StorageEvent) => {
-    if (!event.key || !event.newValue) return;
-    
+  private handleMessage = (event: MessageEvent) => {
     try {
-      const data = JSON.parse(event.newValue);
+      const data = event.data;
       if (data.target === this.userId) {
-        const eventType = event.key.split('_')[0];
+        const eventType = data.type;
         this.notifyListeners(eventType, data);
       }
     } catch (e) {
@@ -47,19 +47,19 @@ export class LocalStorageSignaling {
 
   public send(eventType: string, target: string, data: any) {
     const message = {
+      type: eventType,
       from: this.userId,
       target,
       ...data,
       timestamp: Date.now()
     };
     
-    // Using localStorage as a simple signaling method
-    // In production, this would be done via a server
-    localStorage.setItem(`${eventType}_${Date.now()}`, JSON.stringify(message));
+    // Using BroadcastChannel for more reliable signaling
+    this.channel.postMessage(message);
   }
 
   public cleanup() {
-    window.removeEventListener('storage', this.handleStorageEvent);
+    this.channel.close();
     this.listeners.clear();
   }
 }
@@ -89,4 +89,60 @@ export const addTracksToConnection = (
   stream.getTracks().forEach(track => {
     peerConnection.addTrack(track, stream);
   });
+};
+
+// Utility function to get user media with fallbacks
+export const getUserMedia = async (constraints: MediaStreamConstraints): Promise<MediaStream | null> => {
+  try {
+    // Ensure at least one of video or audio is true
+    const safeConstraints = {
+      video: constraints.video ?? true,
+      audio: constraints.audio ?? true
+    };
+    
+    // If somehow both are false, default to video
+    if (!safeConstraints.video && !safeConstraints.audio) {
+      safeConstraints.video = true;
+    }
+    
+    return await navigator.mediaDevices.getUserMedia(safeConstraints);
+  } catch (err) {
+    console.error('Error accessing media devices:', err);
+    
+    // Try with just audio if video fails
+    if (constraints.video) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (audioErr) {
+        console.error('Error accessing audio:', audioErr);
+        return null;
+      }
+    }
+    return null;
+  }
+};
+
+// Function to ensure data channel reliability
+export const setupReliableDataChannel = (dataChannel: RTCDataChannel, onOpen?: () => void, onClose?: () => void, onMessage?: (data: any) => void) => {
+  dataChannel.binaryType = 'arraybuffer';
+  dataChannel.onopen = () => {
+    console.log('Data channel opened');
+    if (onOpen) onOpen();
+  };
+  
+  dataChannel.onclose = () => {
+    console.log('Data channel closed');
+    if (onClose) onClose();
+  };
+  
+  dataChannel.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (onMessage) onMessage(data);
+    } catch (error) {
+      console.error('Error parsing data channel message:', error);
+    }
+  };
+  
+  return dataChannel;
 };

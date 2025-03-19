@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "@/hooks/use-toast";
-import { iceServers, LocalStorageSignaling, createPeerConnection, addTracksToConnection } from "@/utils/webRTCUtils";
+import { 
+  iceServers, 
+  BroadcastSignaling, 
+  createPeerConnection, 
+  addTracksToConnection,
+  getUserMedia,
+  setupReliableDataChannel
+} from "@/utils/webRTCUtils";
 
 // Constants
 const TYPING_DURATION = 2000; // milliseconds
@@ -36,7 +43,7 @@ const useChat = () => {
   
   // WebRTC related refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const signalingRef = useRef<LocalStorageSignaling | null>(null);
+  const signalingRef = useRef<BroadcastSignaling | null>(null);
   const searchTimeoutRef = useRef<number | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -44,10 +51,12 @@ const useChat = () => {
 
   // Initialize signaling
   useEffect(() => {
-    signalingRef.current = new LocalStorageSignaling(userId);
+    // Create new signaling instance using BroadcastChannel
+    signalingRef.current = new BroadcastSignaling(userId);
     
     // Listen for offer requests
     signalingRef.current.on('offer', async (data) => {
+      console.log('Received offer request from:', data.from);
       if (!isConnected && !isSearching && !isConnecting) {
         toast({
           title: "Connection Request",
@@ -60,6 +69,7 @@ const useChat = () => {
     
     // Listen for offers
     signalingRef.current.on('offer_sdp', async (data) => {
+      console.log('Received SDP offer from:', data.from);
       if (data.target === userId && peerConnectionRef.current && targetUserId === data.from) {
         try {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
@@ -78,6 +88,7 @@ const useChat = () => {
     
     // Listen for answers
     signalingRef.current.on('answer_sdp', async (data) => {
+      console.log('Received SDP answer from:', data.from);
       if (data.target === userId && peerConnectionRef.current) {
         try {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
@@ -98,18 +109,34 @@ const useChat = () => {
       }
     });
     
+    // Listen for disconnects
+    signalingRef.current.on('disconnect', (data) => {
+      if (data.target === userId && data.from === peerId) {
+        toast({
+          title: "Peer Disconnected",
+          description: `${data.from} has disconnected from the chat.`,
+        });
+        disconnect();
+      }
+    });
+    
     return () => {
       signalingRef.current?.cleanup();
     };
-  }, [userId, isConnected, isSearching, isConnecting, targetUserId]);
+  }, [userId, isConnected, isSearching, isConnecting, targetUserId, peerId]);
 
   // Function to start local media stream
   const startLocalStream = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      // Using our improved getUserMedia utility with fallbacks
+      const stream = await getUserMedia({ 
         video: mediaEnabled.video, 
         audio: mediaEnabled.audio 
       });
+      
+      if (!stream) {
+        throw new Error("Could not access media devices");
+      }
       
       setMediaState(prev => ({ ...prev, localStream: stream }));
       return stream;
@@ -126,10 +153,13 @@ const useChat = () => {
 
   // Function to create and initialize peer connection
   const initPeerConnection = useCallback(async (localStream: MediaStream, initiator: boolean) => {
+    console.log(`Initializing peer connection as ${initiator ? 'initiator' : 'receiver'}`);
+    
     // Create a new peer connection
     const pc = createPeerConnection(
       iceServers,
       (candidate) => {
+        console.log("ICE candidate generated, sending to peer");
         if (signalingRef.current && targetUserId) {
           signalingRef.current.send('ice_candidate', targetUserId, {
             candidate
@@ -137,6 +167,7 @@ const useChat = () => {
         }
       },
       (event) => {
+        console.log("Remote track received");
         // Handle incoming tracks
         if (event.streams && event.streams[0]) {
           setMediaState(prev => ({ ...prev, remoteStream: event.streams[0] }));
@@ -147,57 +178,71 @@ const useChat = () => {
     
     // Create data channel for text messaging
     if (initiator) {
-      const dataChannel = pc.createDataChannel('chat');
-      setupDataChannel(dataChannel);
-      dataChannelRef.current = dataChannel;
+      console.log("Creating data channel as initiator");
+      const dataChannel = pc.createDataChannel('chat', {
+        ordered: true,
+        maxRetransmits: 3
+      });
+      dataChannelRef.current = setupReliableDataChannel(
+        dataChannel,
+        undefined,
+        undefined,
+        (data) => {
+          if (data.type === 'chat') {
+            handleIncomingMessage(data.content);
+          } else if (data.type === 'typing') {
+            setIsTyping(true);
+            
+            // Clear existing timeout if there is one
+            if (typingTimeoutRef.current) {
+              window.clearTimeout(typingTimeoutRef.current);
+            }
+            
+            // Set a new timeout to stop the typing indicator
+            typingTimeoutRef.current = window.setTimeout(() => {
+              setIsTyping(false);
+              typingTimeoutRef.current = null;
+            }, TYPING_DURATION);
+          }
+        }
+      );
     } else {
+      console.log("Setting up ondatachannel as receiver");
       pc.ondatachannel = (event) => {
-        setupDataChannel(event.channel);
-        dataChannelRef.current = event.channel;
+        console.log("Data channel received from peer");
+        dataChannelRef.current = setupReliableDataChannel(
+          event.channel,
+          undefined,
+          undefined,
+          (data) => {
+            if (data.type === 'chat') {
+              handleIncomingMessage(data.content);
+            } else if (data.type === 'typing') {
+              setIsTyping(true);
+              
+              // Clear existing timeout if there is one
+              if (typingTimeoutRef.current) {
+                window.clearTimeout(typingTimeoutRef.current);
+              }
+              
+              // Set a new timeout to stop the typing indicator
+              typingTimeoutRef.current = window.setTimeout(() => {
+                setIsTyping(false);
+                typingTimeoutRef.current = null;
+              }, TYPING_DURATION);
+            }
+          }
+        );
       };
     }
     
     // Add tracks from local stream to peer connection
+    console.log("Adding local stream tracks to peer connection");
     addTracksToConnection(pc, localStream);
     
     peerConnectionRef.current = pc;
     return pc;
   }, [targetUserId]);
-
-  // Setup data channel for text chat
-  const setupDataChannel = (dataChannel: RTCDataChannel) => {
-    dataChannel.onopen = () => {
-      console.log("Data channel is open");
-    };
-    
-    dataChannel.onclose = () => {
-      console.log("Data channel is closed");
-    };
-    
-    dataChannel.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'chat') {
-          handleIncomingMessage(data.content);
-        } else if (data.type === 'typing') {
-          setIsTyping(true);
-          
-          // Clear existing timeout if there is one
-          if (typingTimeoutRef.current) {
-            window.clearTimeout(typingTimeoutRef.current);
-          }
-          
-          // Set a new timeout to stop the typing indicator
-          typingTimeoutRef.current = window.setTimeout(() => {
-            setIsTyping(false);
-            typingTimeoutRef.current = null;
-          }, TYPING_DURATION);
-        }
-      } catch (error) {
-        console.error("Error parsing data channel message:", error);
-      }
-    };
-  };
 
   // Handle incoming message
   const handleIncomingMessage = (content: string) => {
@@ -261,14 +306,63 @@ const useChat = () => {
     });
   }, [mediaState.localStream]);
 
+  // Register an active user for discovery
+  const registerAsActive = useCallback(() => {
+    const key = `active_${userId}`;
+    const data = {
+      userId,
+      timestamp: Date.now()
+    };
+    
+    sessionStorage.setItem(key, JSON.stringify(data));
+    
+    // Cleanup old entries
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('active_')) {
+        try {
+          const data = JSON.parse(sessionStorage.getItem(key) || '{}');
+          if (Date.now() - data.timestamp > 60000) {
+            sessionStorage.removeItem(key);
+          }
+        } catch (e) {
+          console.error('Error parsing active user data:', e);
+        }
+      }
+    }
+  }, [userId]);
+  
+  // Find active users
+  const findActiveUsers = useCallback(() => {
+    const activeUsers = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('active_')) {
+        try {
+          const data = JSON.parse(sessionStorage.getItem(key) || '{}');
+          if (data.userId !== userId && Date.now() - data.timestamp < 60000) {
+            activeUsers.push(data.userId);
+          }
+        } catch (e) {
+          console.error('Error parsing active user data:', e);
+        }
+      }
+    }
+    return activeUsers;
+  }, [userId]);
+
   // Function to connect to a new chat
   const connect = useCallback(async (specificUserId?: string) => {
+    console.log(`Attempting to connect${specificUserId ? ' to specific user: ' + specificUserId : ''}`);
     setIsConnecting(true);
     setMessages([]);
     setPeerId(null);
     setTargetUserId(specificUserId || null);
     
     try {
+      // Register as active user
+      registerAsActive();
+      
       // Start local media stream
       const stream = await startLocalStream();
       
@@ -294,6 +388,7 @@ const useChat = () => {
           
           // Send an offer request to the target user
           if (signalingRef.current) {
+            console.log("Sending offer request to:", specificUserId);
             signalingRef.current.send('offer', specificUserId, {
               userId
             });
@@ -303,6 +398,7 @@ const useChat = () => {
           const pc = await initPeerConnection(stream, true);
           
           // Create and send an offer
+          console.log("Creating and sending SDP offer");
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           
@@ -319,32 +415,13 @@ const useChat = () => {
           // Random user search
           setIsSearching(true);
           
-          // Instead of randomly finding a user, put an entry in local storage
-          // that you're looking for connections
-          localStorage.setItem(`search_${userId}`, JSON.stringify({
-            userId,
-            timestamp: Date.now()
-          }));
+          // Find active users
+          const activeUsers = findActiveUsers();
           
-          // Check for other users searching
-          const searchingUsers = [];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('search_')) {
-              try {
-                const data = JSON.parse(localStorage.getItem(key) || '{}');
-                if (data.userId !== userId && Date.now() - data.timestamp < 30000) {
-                  searchingUsers.push(data.userId);
-                }
-              } catch (e) {
-                console.error('Error parsing search data:', e);
-              }
-            }
-          }
-          
-          if (searchingUsers.length > 0) {
-            // Connect to the first user found
-            const randomUser = searchingUsers[Math.floor(Math.random() * searchingUsers.length)];
+          if (activeUsers.length > 0) {
+            // Connect to a random active user
+            const randomUser = activeUsers[Math.floor(Math.random() * activeUsers.length)];
+            console.log("Found active user, connecting to:", randomUser);
             connect(randomUser);
           } else {
             // No users found, keep searching
@@ -357,7 +434,7 @@ const useChat = () => {
             const timeoutId = window.setTimeout(() => {
               if (isSearching) {
                 setIsSearching(false);
-                localStorage.removeItem(`search_${userId}`);
+                sessionStorage.removeItem(`active_${userId}`);
                 toast({
                   title: "Connection timeout",
                   description: "No users found. Please try again.",
@@ -380,11 +457,19 @@ const useChat = () => {
         variant: "destructive",
       });
     }
-  }, [startLocalStream, initPeerConnection, userId, isSearching]);
+  }, [startLocalStream, initPeerConnection, userId, isSearching, registerAsActive, findActiveUsers]);
 
   // Function to disconnect from the current chat
   const disconnect = useCallback(() => {
+    console.log("Disconnecting from chat");
     if (isConnected || isSearching) {
+      // Notify peer about disconnection
+      if (signalingRef.current && peerId) {
+        signalingRef.current.send('disconnect', peerId, {
+          reason: 'user_disconnect'
+        });
+      }
+      
       // Stop all media tracks
       if (mediaState.localStream) {
         mediaState.localStream.getTracks().forEach(track => track.stop());
@@ -413,8 +498,8 @@ const useChat = () => {
         searchTimeoutRef.current = null;
       }
       
-      // Remove search entry
-      localStorage.removeItem(`search_${userId}`);
+      // Remove active user entry
+      sessionStorage.removeItem(`active_${userId}`);
       
       setIsConnected(false);
       setIsSearching(false);
@@ -429,7 +514,7 @@ const useChat = () => {
         });
       }, DISCONNECT_DELAY);
     }
-  }, [isConnected, isSearching, mediaState, userId]);
+  }, [isConnected, isSearching, mediaState, userId, peerId]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -458,10 +543,21 @@ const useChat = () => {
         dataChannelRef.current.close();
       }
       
-      // Remove search entry
-      localStorage.removeItem(`search_${userId}`);
+      // Remove active user entry
+      sessionStorage.removeItem(`active_${userId}`);
     };
   }, [mediaState.localStream, userId]);
+
+  // Keep active status fresh
+  useEffect(() => {
+    if (isSearching) {
+      const interval = setInterval(() => {
+        registerAsActive();
+      }, 20000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [isSearching, registerAsActive]);
 
   return {
     isConnecting,
@@ -472,6 +568,7 @@ const useChat = () => {
     peerId,
     messages,
     sendMessage,
+    sendTypingIndicator,
     connect,
     disconnect,
     mediaState,
