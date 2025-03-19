@@ -9,6 +9,8 @@ import Loading from "@/components/Loading";
 import useChat from "@/hooks/useChat";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
+import { Share, UserPlus } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 
 const Chat = () => {
   const { 
@@ -49,6 +51,24 @@ const Chat = () => {
     setSpecificUserId("");
   };
 
+  const copyUserIdToClipboard = () => {
+    navigator.clipboard.writeText(userId)
+      .then(() => {
+        toast({
+          title: "User ID Copied",
+          description: "Your User ID has been copied to clipboard",
+        });
+      })
+      .catch(err => {
+        console.error('Failed to copy: ', err);
+        toast({
+          title: "Failed to copy",
+          description: "Could not copy ID to clipboard",
+          variant: "destructive"
+        });
+      });
+  };
+
   const getStatusMessage = () => {
     if (isConnected) return `You (${userId}) are connected to ${peerId || "another user"}.`;
     if (isSearching) return "Searching for users...";
@@ -74,14 +94,29 @@ const Chat = () => {
           className="w-full max-w-6xl mx-auto"
         >
           <div className="mb-6">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Video Chat</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">WebRTC Video Chat</h1>
             <p className="text-muted-foreground">
               {getStatusMessage()}
             </p>
             {!isConnected && !isSearching && !isConnecting && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Your User ID: <span className="font-medium">{userId}</span> (share this with others to let them connect with you)
-              </p>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Your User ID: <span className="font-medium">{userId}</span>
+                  </p>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-7 w-7 p-0" 
+                    onClick={copyUserIdToClipboard}
+                  >
+                    <Share className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  (Share this with others to let them connect with you)
+                </p>
+              </div>
             )}
           </div>
           
@@ -146,14 +181,32 @@ const Chat = () => {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col sm:flex-row justify-center gap-3 mb-2">
-                    <Button onClick={() => connect()}>Find Random User</Button>
-                    <Button 
-                      onClick={() => setShowDirectConnect(true)}
-                      variant="outline"
-                    >
-                      Connect to Specific User
-                    </Button>
+                  <div className="flex flex-col space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-center gap-3">
+                      <Button 
+                        onClick={() => connect()}
+                        className="flex items-center gap-2"
+                      >
+                        Find Random User
+                      </Button>
+                      <Button 
+                        onClick={() => setShowDirectConnect(true)}
+                        variant="outline"
+                        className="flex items-center gap-2"
+                      >
+                        <UserPlus size={16} />
+                        Connect to Specific User
+                      </Button>
+                    </div>
+                    
+                    <div className="text-center">
+                      <Separator className="my-4" />
+                      <p className="text-sm text-muted-foreground mb-2">
+                        This chat uses WebRTC for secure peer-to-peer connections.
+                        <br />
+                        Your video and audio stay private between you and the person you're chatting with.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
